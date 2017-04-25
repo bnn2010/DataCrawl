@@ -1,6 +1,8 @@
 package com.bun.datacrawl;
 
+import com.bun.datacrawl.dao.MongoDBConnectUtil;
 import com.bun.datacrawl.util.spiderUtil.PostUtil;
+import com.mongodb.client.MongoCollection;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -15,35 +17,75 @@ import java.io.UnsupportedEncodingException;
  */
 public class BaiduData {
 
-    public void getBaiduData(){
-        String query = "site:gov.cn 大气and文件and(京津冀or北京or天津or河北or山东or山西or内蒙古)";
+    public void getBaiduData(String query,int pn){
+//        String query = "site:gov.cn 大气and文件and(京津冀or北京or天津or河北or山东or山西or内蒙古)";
 
+        String collectionName = "CrawledData";
+        MongoCollection collection= MongoDBConnectUtil.instance.getCollection(collectionName);
         try {
             String urlquery = java.net.URLEncoder.encode(query,"utf-8");
-//            String pn=
-            String urlBuilder = "http://www.baidu.com/s?wd="+urlquery;
+//           这里要加上pn参数，翻页用的。
+            String urlBuilder = "http://www.baidu.com/s?wd="+urlquery+"&pn="+pn;
             System.out.println("urlEncoderStr:"+urlBuilder);
             String content = PostUtil.excuteGet(urlBuilder);
             Document doc = Jsoup.parse(content,"utf-8");
-            Elements links=doc.select("a[href]");
-            Element first=doc.select("id.1").first();
-            System.out.println(first);
-//            for (Element link:links
-//                 ) {
-//                System.out.println(link);
-//            }
-//            Element contentLeft = doc.select("div.content_left").first();
-//            System.out.println(contentLeft);
-//            for (Element item:contentLefts
-//                 ) {
-//                System.out.println(item.html());
-//                System.out.println("--------------------");
-//            }
-//            System.out.println(doc.body());
+            Element contentLeft = doc.select("div[id=content_left]").first();
+            Elements itemList = contentLeft.select("div[class=result c-container ]");
+            for (Element item :
+                    itemList) {
+//                System.out.println(item);
+                Element hrefElement=item.select("a[href]").first();
+                //网站链接，注意是百度加密后的链接。
+                String href = hrefElement.attr("href");
+//                System.out.println("baiduLink:"+href);
+                //真实链接
+                String realHref = getRealLinkFromBaiduLink(href);
+                System.out.println("readLink:"+realHref);
+
+//                System.out.println("--------------------------------");
+                String title = item.select("h3[class=t]").first().text();
+
+                Element articleAbstractTimeElement =item.select("div[class=c-abstract]").first();
+                if(articleAbstractTimeElement==null)
+                {
+                    continue;
+                }
+                String articleAbstractTime=articleAbstractTimeElement.text();
+
+                Element publishTimeElement = item.select("span[class= newTimeFactor_before_abs m]").first();
+                String publishTime="";
+                String articleAbstract="";
+                if (publishTimeElement != null) {
+                    publishTime=publishTimeElement.text();
+                    articleAbstract= articleAbstractTime.replace(publishTime,"");
+                    publishTime = publishTime.replace(" - ","");
+                }
+                else
+                {
+                    articleAbstract=articleAbstractTime;
+
+                }
+
+                System.out.println("publishTime:"+publishTime);
+                System.out.println("abstract:"+articleAbstract);
+                System.out.println("title:"+title);
+                System.out.println("---------------------------------------------------");
+//                break;
+
+                //准备往数据库中写入
+                org.bson.Document docInsert = new org.bson.Document();
+                docInsert.append("title",title);
+                docInsert.append("publish_time",publishTime);
+                docInsert.append("url",realHref);
+                docInsert.append("abstract",articleAbstract);
+                docInsert.append("query",query);
+                collection.insertOne(docInsert);
 
 
-//            System.out.println(content);
-        } catch (UnsupportedEncodingException e) {
+            }
+
+
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
@@ -58,16 +100,18 @@ public class BaiduData {
 
     //利用这个方法获取真实的链接是可行的。
     //更多方法，见http://www.itseo.net/direction/show-156.html
-    public static void jsoupTest()
+    public static String  getRealLinkFromBaiduLink(String url)
     {
         Connection.Response res = null;
+        String readLink="";
         try {
-            res = Jsoup.connect("https://www.baidu.com/link?url=NsHkjUPGl_mZhzM-TUlu6ZfyO3os9ubGKhDv9XiMklKxONjEtFTVLyrKWiW50gJzRFL2hChm_hkarUGQkmwPS_").timeout(60000).method(Connection.Method.GET).followRedirects(false).execute();
-            String str= res.header("Location");
-            System.out.println(str);
+            res = Jsoup.connect(url).timeout(60000).method(Connection.Method.GET).followRedirects(false).execute();
+            readLink= res.header("Location");
+//            System.out.println(str);
         } catch (IOException e) {
             e.printStackTrace();
         }
+        return readLink;
 
     }
 
