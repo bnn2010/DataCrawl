@@ -3,6 +3,8 @@ package com.bun.datacrawl;
 import com.bun.datacrawl.dao.MongoDBConnectUtil;
 import com.bun.datacrawl.util.spiderUtil.PostUtil;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.Filters;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -10,7 +12,6 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 
 /**
  * Created by bun@csip.org.cn on 2017/4/24.
@@ -89,12 +90,58 @@ public class BaiduData {
             e.printStackTrace();
         }
 
-
-
-
     }
 
 
+    public void getLawxyRealLinkFromBaidu(){
+       String collectionName = "lawxy";
+        MongoCollection collection= MongoDBConnectUtil.instance.getCollection(collectionName);
+        try {
+            MongoCursor<org.bson.Document> cursor = collection.find().iterator();
+            int count=0;
+            while (cursor.hasNext()) {
+                count++;
+                org.bson.Document docMon = cursor.next();
+                String title = docMon.getString("文件标题");
+                String quertTitle = "site:gov.cn "+title;
+                String urlquery = java.net.URLEncoder.encode(quertTitle, "utf-8");
+
+//           这里要加上pn参数，翻页用的。
+                String urlBuilder = "http://www.baidu.com/s?wd=" + urlquery;
+                System.out.println("urlEncoderStr:" + urlBuilder);
+                String content = PostUtil.excuteGet(urlBuilder);
+                Document doc = Jsoup.parse(content, "utf-8");
+                Element contentLeft = doc.select("div[id=content_left]").first();
+                Elements itemList = contentLeft.select("div[class=result c-container ]");
+                for (Element item :
+                        itemList) {
+//                System.out.println(item);
+                    Element hrefElement = item.select("a[href]").first();
+                    //网站链接，注意是百度加密后的链接。
+                    String href = hrefElement.attr("href");
+//                System.out.println("baiduLink:"+href);
+                    //真实链接
+                    String realHref = getRealLinkFromBaiduLink(href);
+                    System.out.println("readLink:" + realHref);
+
+
+
+                    docMon.put("url", realHref);
+                    collection.replaceOne(
+                            Filters.eq( "_id", docMon.get( "_id" ) ),
+                            docMon );
+                    break;
+
+
+                }
+            }
+
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+    }
 
 
 
@@ -116,6 +163,8 @@ public class BaiduData {
     }
 
     public static void main(String[] args) {
+        BaiduData bd = new BaiduData();
+        bd.getLawxyRealLinkFromBaidu();
 
     }
 }
